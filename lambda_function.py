@@ -1,7 +1,7 @@
 import os
-import json
+import sys
 import boto3
-import pprint
+import pymysql
 import subprocess
 import requests
 import urllib.parse
@@ -47,6 +47,10 @@ def extract_text(path):
     }
     data = open(path, "rb")
     response = requests.post(url, headers=headers, data=data)
+    if response.status_code != 200:
+        print("[ ERROR ] status_code :", response.status_code)
+        print(response.text)
+        sys.exit(-1)
     return response.json().get("text")
 
 
@@ -69,16 +73,55 @@ def get_full_text(path):
     return full_text
 
 
+def save_video_script(key, script):
+    """
+    STT 결과를 AWS RDS에 저장
+    """
+    try:
+        connection = pymysql.connect(
+            host="***",
+            user="***",
+            password="***",
+            db="***",
+        )
+    except pymysql.MySQLError as e:
+        print("[ ERROR ] MySQL Connection Error")
+        print(e)
+        sys.exit(-1)
+    
+    with connection.cursor() as cursor:
+        print(
+            "UPDATE cloudstorage_fileinfo SET `script` = '{script}' WHERE `key`='{key}'".format(
+                script=script,
+                key=key,
+            )
+        )
+        cursor.execute(
+            "UPDATE cloudstorage_fileinfo SET `script` = '{script}' WHERE `key`='{key}'".format(
+                script=script,
+                key=key,
+            )
+        )
+    
+    connection.commit()
+    
+
 def lambda_handler(event, context):
     """
     트리거 호출시 실행되는 함수
     """
+    # print("[ DEBUG ] event :", json.dumps(event, indent=2))
+    
     bucket = event["Records"][0]["s3"]["bucket"]["name"]
     key = urllib.parse.unquote_plus(event["Records"][0]["s3"]["object"]["key"], encoding="utf-8")
     
     download_file(bucket, key, "/tmp/input.mp4")
+    # print("[ DEBUG ] $", run_command("ls -al /tmp/input.mp4"))
     
+
     text = get_full_text("/tmp/input.mp4") 
+    save_video_script(key, text)
     
     print("[ DEBUG ] text :", text)
+    
     
